@@ -14,66 +14,52 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
-		origin: "*", // Replace with your frontend URL in production
+		origin: "*",
 		methods: ["GET", "POST"],
 	},
 });
 
-// Track which socket is in which room and its peer
-const rooms = {};
-
 io.on("connection", (socket) => {
 	console.log("New user connected:", socket.id);
 
-	// Join a room
+	// Join room
 	socket.on("join-room", (room) => {
 		socket.join(room);
-
-		// Track users in room
-		if (!rooms[room]) rooms[room] = [];
-		rooms[room].push(socket.id);
-
-		// Notify existing user in the room (1:1)
-		const otherUser = rooms[room].find((id) => id !== socket.id);
-		if (otherUser) {
-			io.to(otherUser).emit("new-user", socket.id);
-		}
+		console.log(`${socket.id} joined room ${room}`);
+		// Notify all others in the room
+		socket.to(room).emit("new-user", socket.id);
 	});
 
-	// WebRTC offer
+	// Forward offer
 	socket.on("offer", ({ sdp, to }) => {
-		if (to) io.to(to).emit("offer", { sdp, from: socket.id });
+		io.to(to).emit("offer", { sdp, from: socket.id });
 	});
 
-	// WebRTC answer
+	// Forward answer
 	socket.on("answer", ({ sdp, to }) => {
-		if (to) io.to(to).emit("answer", { sdp, from: socket.id });
+		io.to(to).emit("answer", { sdp, from: socket.id });
 	});
 
-	// ICE candidates
+	// Forward ICE candidate
 	socket.on("ice-candidate", ({ candidate, to }) => {
-		if (to) io.to(to).emit("ice-candidate", { candidate });
+		io.to(to).emit("ice-candidate", { candidate });
 	});
 
 	// End call
 	socket.on("end-call", ({ to }) => {
-		if (to) io.to(to).emit("end-call");
+		io.to(to).emit("end-call"); // Notify remote
 	});
 
 	// Disconnect
+	socket.on("disconnecting", () => {
+		const rooms = [...socket.rooms].filter((r) => r !== socket.id);
+		rooms.forEach((room) => {
+			socket.to(room).emit("end-call"); // Notify all peers in the room
+		});
+	});
+
 	socket.on("disconnect", () => {
 		console.log("User disconnected:", socket.id);
-
-		// Remove from rooms
-		for (const room in rooms) {
-			rooms[room] = rooms[room].filter((id) => id !== socket.id);
-
-			// Notify remaining user
-			rooms[room].forEach((id) => io.to(id).emit("end-call"));
-
-			// Clean up empty rooms
-			if (rooms[room].length === 0) delete rooms[room];
-		}
 	});
 });
 
