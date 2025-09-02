@@ -14,7 +14,7 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
-		origin: "https://insync-sable.vercel.app/", // Replace with your frontend URL in production
+		origin: "*", // Replace with your frontend URL in production
 		methods: ["GET", "POST"],
 	},
 });
