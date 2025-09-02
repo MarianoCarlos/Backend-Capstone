@@ -14,10 +14,13 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
-		origin: "*", // Change this to your frontend URL in production
+		origin: "*", // Replace with your frontend URL in production
 		methods: ["GET", "POST"],
 	},
 });
+
+// Track which socket is in which room and its peer
+const rooms = {};
 
 io.on("connection", (socket) => {
 	console.log("New user connected:", socket.id);
@@ -25,22 +28,31 @@ io.on("connection", (socket) => {
 	// Join a room
 	socket.on("join-room", (room) => {
 		socket.join(room);
-		socket.to(room).emit("new-user", socket.id);
+
+		// Track users in room
+		if (!rooms[room]) rooms[room] = [];
+		rooms[room].push(socket.id);
+
+		// Notify existing user in the room (1:1)
+		const otherUser = rooms[room].find((id) => id !== socket.id);
+		if (otherUser) {
+			io.to(otherUser).emit("new-user", socket.id);
+		}
 	});
 
 	// WebRTC offer
 	socket.on("offer", ({ sdp, to }) => {
-		io.to(to).emit("offer", { sdp, from: socket.id });
+		if (to) io.to(to).emit("offer", { sdp, from: socket.id });
 	});
 
 	// WebRTC answer
 	socket.on("answer", ({ sdp, to }) => {
-		io.to(to).emit("answer", { sdp, from: socket.id });
+		if (to) io.to(to).emit("answer", { sdp, from: socket.id });
 	});
 
 	// ICE candidates
 	socket.on("ice-candidate", ({ candidate, to }) => {
-		io.to(to).emit("ice-candidate", { candidate });
+		if (to) io.to(to).emit("ice-candidate", { candidate });
 	});
 
 	// End call
@@ -48,12 +60,20 @@ io.on("connection", (socket) => {
 		if (to) io.to(to).emit("end-call");
 	});
 
-	// Handle disconnect
+	// Disconnect
 	socket.on("disconnect", () => {
 		console.log("User disconnected:", socket.id);
-		Array.from(socket.rooms)
-			.filter((room) => room !== socket.id) // exclude socket's own room
-			.forEach((room) => socket.to(room).emit("end-call"));
+
+		// Remove from rooms
+		for (const room in rooms) {
+			rooms[room] = rooms[room].filter((id) => id !== socket.id);
+
+			// Notify remaining user
+			rooms[room].forEach((id) => io.to(id).emit("end-call"));
+
+			// Clean up empty rooms
+			if (rooms[room].length === 0) delete rooms[room];
+		}
 	});
 });
 
