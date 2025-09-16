@@ -7,7 +7,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-// Test route to confirm backend is alive
+// Test route
 app.get("/", (req, res) => {
 	res.send("Backend is working!");
 });
@@ -15,7 +15,7 @@ app.get("/", (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
 	cors: {
-		origin: "*", // allow frontend from any origin (adjust for production)
+		origin: "*", // change to your frontend domain in production
 		methods: ["GET", "POST"],
 	},
 });
@@ -25,9 +25,15 @@ io.on("connection", (socket) => {
 
 	// Join a room
 	socket.on("join-room", (room) => {
-		console.log(`📌 User ${socket.id} joined room ${room}`);
+		const roomInfo = io.sockets.adapter.rooms.get(room);
+		const roomSize = roomInfo ? roomInfo.size : 0;
+
 		socket.join(room);
-		socket.to(room).emit("new-user", socket.id);
+		console.log(`📌 User ${socket.id} joined room ${room} (size: ${roomSize + 1})`);
+
+		// polite = true if already someone in room
+		const polite = roomSize > 0;
+		socket.to(room).emit("new-user", socket.id, polite);
 	});
 
 	// Handle SDP Offer
@@ -53,6 +59,11 @@ io.on("connection", (socket) => {
 	// On disconnect
 	socket.on("disconnect", () => {
 		console.log("❌ User disconnected:", socket.id);
+		socket.rooms.forEach((room) => {
+			if (room !== socket.id) {
+				socket.to(room).emit("user-disconnected", socket.id);
+			}
+		});
 	});
 });
 
