@@ -50,6 +50,15 @@ io.on("connection", (socket) => {
 		}
 	});
 
+	// Handle new translations
+	socket.on("new-translation", (data) => {
+		// Broadcast to everyone else in all rooms the socket is in
+		const rooms = Array.from(socket.rooms).filter((r) => r !== socket.id);
+		rooms.forEach((room) => {
+			socket.to(room).emit("new-translation", data);
+		});
+	});
+
 	// On disconnect
 	socket.on("disconnect", () => {
 		console.log("❌ User disconnected:", socket.id);
