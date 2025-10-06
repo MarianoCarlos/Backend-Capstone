@@ -20,29 +20,42 @@ const io = new Server(server, {
 	},
 });
 
+// 🧠 Store connected users by socket ID → { room, uid, name }
+const users = new Map();
+
 io.on("connection", (socket) => {
 	console.log("✅ New user connected:", socket.id);
 
-	// Join a room
+	// 🔹 Register Firebase info when user joins
+	socket.on("register-user", ({ room, uid, name }) => {
+		users.set(socket.id, { room, uid, name });
+		socket.join(room);
+		console.log(`📌 Registered user ${name} (${uid}) in room ${room}`);
+
+		// Notify others in the room about this user’s info
+		socket.to(room).emit("user-info", { uid, name });
+	});
+
+	// 🔹 When someone joins room (legacy support)
 	socket.on("join-room", (room) => {
 		console.log(`📌 User ${socket.id} joined room ${room}`);
 		socket.join(room);
 		socket.to(room).emit("new-user", socket.id);
 	});
 
-	// Handle SDP Offer
+	// 🔹 Handle SDP Offer
 	socket.on("offer", ({ sdp, to }) => {
 		console.log(`📡 Offer from ${socket.id} → ${to}`);
 		io.to(to).emit("offer", { sdp, from: socket.id });
 	});
 
-	// Handle SDP Answer
+	// 🔹 Handle SDP Answer
 	socket.on("answer", ({ sdp, to }) => {
 		console.log(`📡 Answer from ${socket.id} → ${to}`);
 		io.to(to).emit("answer", { sdp, from: socket.id });
 	});
 
-	// Handle ICE Candidates
+	// 🔹 Handle ICE Candidates
 	socket.on("ice-candidate", ({ candidate, to }) => {
 		if (to && candidate) {
 			console.log(`🧊 ICE candidate from ${socket.id} → ${to}`);
@@ -50,18 +63,24 @@ io.on("connection", (socket) => {
 		}
 	});
 
-	// Handle new translations
+	// 🔹 Handle new translations
 	socket.on("new-translation", (data) => {
-		// Broadcast to everyone else in all rooms the socket is in
 		const rooms = Array.from(socket.rooms).filter((r) => r !== socket.id);
 		rooms.forEach((room) => {
 			socket.to(room).emit("new-translation", data);
 		});
 	});
 
-	// On disconnect
+	// 🔹 On disconnect
 	socket.on("disconnect", () => {
-		console.log("❌ User disconnected:", socket.id);
+		const user = users.get(socket.id);
+		if (user) {
+			console.log(`❌ Disconnected: ${user.name} (${user.uid})`);
+			users.delete(socket.id);
+			socket.to(user.room).emit("user-left", user.uid);
+		} else {
+			console.log("❌ User disconnected:", socket.id);
+		}
 	});
 });
 
