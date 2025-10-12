@@ -7,7 +7,7 @@ const cors = require("cors");
 const app = express();
 app.use(cors());
 
-// Simple API health check
+// ✅ Health check
 app.get("/", (req, res) => {
 	res.send("✅ ASL Video Call Backend is running!");
 });
@@ -30,7 +30,7 @@ const io = new Server(server, {
 // 🌐 CONNECTION MANAGEMENT
 // ==================================================================
 const users = new Map(); // socket.id → { room, uid, name, userType }
-const uidToSocket = new Map(); // uid → socket.id (fixes signaling)
+const uidToSocket = new Map(); // uid → socket.id
 
 // ==================================================================
 // 🔌 SOCKET EVENTS
@@ -42,12 +42,28 @@ io.on("connection", (socket) => {
 	socket.on("register-user", ({ room, uid, name, userType }) => {
 		users.set(socket.id, { room, uid, name, userType });
 		uidToSocket.set(uid, socket.id);
-
 		socket.join(room);
+
 		console.log(`📌 Registered ${name} (${userType}) in room ${room}`);
 
-		// Notify other peer(s) in the room
-		socket.to(room).emit("user-info", { uid, name, userType, socketId: socket.id });
+		// ✅ Send this user's info to everyone in the room (including sender)
+		io.to(room).emit("user-info", { uid, name, userType, socketId: socket.id });
+
+		// ✅ Send existing users' info back to the new user
+		const existingUsers = Array.from(io.sockets.adapter.rooms.get(room) || [])
+			.filter((id) => id !== socket.id)
+			.map((id) => users.get(id));
+
+		existingUsers.forEach((u) => {
+			if (u) {
+				socket.emit("user-info", {
+					uid: u.uid,
+					name: u.name,
+					userType: u.userType,
+					socketId: uidToSocket.get(u.uid),
+				});
+			}
+		});
 	});
 
 	// 🔹 Manual room join (fallback)
