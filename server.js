@@ -31,6 +31,7 @@ const io = new Server(server, {
 // ==================================================================
 const users = new Map(); // socket.id → { room, uid, name, userType }
 const uidToSocket = new Map(); // uid → socket.id
+const pendingCandidates = new Map(); // uid → [{ from, candidate }]
 
 // ==================================================================
 // 🔌 SOCKET EVENTS
@@ -40,13 +41,24 @@ io.on("connection", (socket) => {
 
 	// 🔹 Register user with Firebase info
 	socket.on("register-user", ({ room, uid, name, userType }) => {
+		// Store user info
 		users.set(socket.id, { room, uid, name, userType });
 		uidToSocket.set(uid, socket.id);
 		socket.join(room);
 
 		console.log(`📌 Registered ${name} (${userType}) in room ${room}`);
 
-		// ✅ Send this user's info to everyone in the room (including sender)
+		// 🔁 Send any queued ICE candidates waiting for this UID
+		if (pendingCandidates.has(uid)) {
+			const queued = pendingCandidates.get(uid);
+			queued.forEach(({ from, candidate }) => {
+				io.to(socket.id).emit("ice-candidate", { candidate, from });
+			});
+			pendingCandidates.delete(uid);
+			console.log(`🧊 Flushed ${queued.length} pending ICE candidates for ${uid}`);
+		}
+
+		// ✅ Notify everyone (including sender) of this user
 		io.to(room).emit("user-info", { uid, name, userType, socketId: socket.id });
 
 		// ✅ Send existing users' info back to the new user
@@ -98,11 +110,22 @@ io.on("connection", (socket) => {
 
 	socket.on("ice-candidate", ({ candidate, to }) => {
 		const targetSocketId = uidToSocket.get(to) || to;
+
 		if (targetSocketId && candidate) {
 			console.log(`🧊 ICE candidate: ${socket.id} → ${targetSocketId}`);
 			io.to(targetSocketId).emit("ice-candidate", { candidate, from: socket.id });
-		} else {
-			console.warn(`⚠️ ICE target not found: ${to}`);
+		} else if (candidate && to) {
+			console.warn(`⚠️ Target ${to} not found. Queuing ICE candidate.`);
+			if (!pendingCandidates.has(to)) pendingCandidates.set(to, []);
+			pendingCandidates.get(to).push({ candidate, from: socket.id });
+
+			// 🧹 Auto-clean ICE queue if peer never connects (after 60 seconds)
+			setTimeout(() => {
+				if (pendingCandidates.has(to)) {
+					console.log(`🧼 Cleaning up stale ICE queue for ${to}`);
+					pendingCandidates.delete(to);
+				}
+			}, 60000);
 		}
 	});
 
