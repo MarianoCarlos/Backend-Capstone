@@ -143,15 +143,17 @@ io.on("connection", (socket) => {
 	// ❌ DISCONNECT HANDLER
 	// ==================================================================
 	socket.on("disconnect", () => {
-		const user = users.get(socket.id);
-		if (user) {
-			console.log(`❌ ${user.name} (${user.uid}) disconnected`);
-			uidToSocket.delete(user.uid);
-			users.delete(socket.id);
-			socket.to(user.room).emit("user-left", user.uid);
-		} else {
-			console.log("❌ Socket disconnected:", socket.id);
-		}
+		setTimeout(() => {
+			const user = users.get(socket.id);
+			if (user) {
+				console.log(`❌ ${user.name} (${user.uid}) disconnected`);
+				uidToSocket.delete(user.uid);
+				users.delete(socket.id);
+				socket.to(user.room).emit("user-left", user.uid);
+			} else {
+				console.log("❌ Socket disconnected:", socket.id);
+			}
+		}, 1000); // small delay prevents false "user-left" messages
 	});
 });
 
@@ -159,4 +161,6 @@ io.on("connection", (socket) => {
 // 🚀 START SERVER
 // ==================================================================
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Socket server running on port ${PORT}`));
+server.listen(PORT, "0.0.0.0", () => {
+	console.log(`🚀 Socket server running on port ${PORT}`);
+});
